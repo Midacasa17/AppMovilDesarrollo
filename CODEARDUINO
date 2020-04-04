@@ -1,0 +1,287 @@
+// declaro algunas variables booleanas para poder tener el estado de la luz
+// y del aireador para manipularlas al momento de tener en modo manual el sistema
+bool estado_manual = false ;
+bool estado_luz = false;
+bool estado_aire= false;
+bool estado_agua= false;
+bool estado = false; // false
+
+
+#include <SoftwareSerial.h>
+
+SoftwareSerial blue(2, 3);   // Crea nueva conexion- Pin2(RX) a TX y Pin3(TX) a RX
+int btdato; //dato a leer por el bluetooth
+// ------------------------------------- 
+
+
+
+void setup () {
+  //Inicializamos el puerto serie, wire y el modulo RTC
+    Serial.begin(9600);
+    blue.begin(9600); // Iniciamos el puerto nuevo Serial blue a 9600 Baudios
+    dht.begin(); // inicializo la libreria del sensor
+    Wire.begin(); // inicializo la conexión I2C
+    RTC.begin(); // inicializo el módulo del reloj
+    //Si quitamos el comentario de la linea siguiente, se ajusta la hora y la fecha con la del ordenador
+    //RTC.adjust(DateTime(__DATE__, __TIME__));
+  
+  pinMode(agua,INPUT); // determino el pin 4 como entrada del sensor de humedad,para verificar nivel de agua
+  //----  DETERMINO LOS PINES COMO SALIDA -------
+  pinMode(luz,OUTPUT);
+  pinMode(aire,OUTPUT);
+  digitalWrite(luz,1); // los reles se activan con 0, por eso de una vez los dejo activos en 1
+  digitalWrite(aire,1);// para que solo se accionen cuando se pongan en 0
+  pinMode(9,1); //monitor del nivel de agua
+  pinMode(10,1); //configuro el pin 10 como salida, por eso el 1. monitor del modo automático
+  pinMode(11,1); //configuro el pin 11 como salida, por eso el 1.
+
+  }
+  
+void loop () 
+  {
+
+ //lee el tiempo del modulo ds1307, previamente se ha configurado con la hora.
+    
+    DateTime now = RTC.now();
+    hora=(now.hour(),DEC);
+
+//--------------------- LEER SENSOR DHT11 ----------------------------
+
+int h = dht.readHumidity();// Lee la humedad
+int t = dht.readTemperature();//Lee la temperatura
+//////////////////////////////////////////////////Humedad
+Serial.print("      Humedad Relativa: ");                 
+Serial.print(h);//Escribe la humedad
+Serial.println(" %");                     
+///////////////////////////////////////////////////Temperatura              
+Serial.print("     Temperatura: ");                  
+Serial.print(t);//Escribe la temperatura
+Serial.println(" C");                   
+///////////////////////////////////////////////////             
+
+
+ 
+ // Se llama a la función fecha() para imprimir la fecha en el monitor serie -----
+    fecha();
+
+
+
+//---INSTRUCCIONES PARA  MOODO  MANUAL O AUTOMÁTICO ------------------
+
+if(estado_manual==false) //si es false es porque está en modo automático
+//hay que estipular que cuando se desconecté del celular vuelva a modo automático.
+  {
+    Serial.println("MODO MANUAL DESACTIVADO. SE ENCUENTRA EN AUTOMATICO");
+    digitalWrite(10,1); //un led para mostrar que está en modo automático
+//-------------------------- TEMPORIZADOR  DIGITAL PARA ENCENDER LA ILUMINACION ------------------------
+// el foto periodo inicia a las 6am y termina a las 20:00 horas o 8pm.
+// 14 horas de luz, con un periodo de 10 sin la misma.
+// hay que buscar la manera de modificar esto desde android, pero que quede grabado en rom.
+
+  if (now.hour()>= 6 && now.hour()<20)
+  {
+  digitalWrite(luz,LOW);
+  Serial.println("led on");
+  estado_luz=true; //la bandera luz queda en true.
+  }
+  else 
+  {
+  digitalWrite(luz,HIGH);
+  Serial.println("led off");
+  estado_luz=false; //la bandera estado luz queda en false, para informar que está apagada.
+  }
+//--------------------TEMPORIZADOR PARA ENCENDER Y APAGAR EL AIREADOR -----------------------------------
+
+// Este se encenderá 4 veces al día, de las 1:00 a las 3:00;    2 horas
+// de las 9:00 a las 11:00                                      2 horas
+// de las 13:00 a las 14:00                                     1 hora
+// de las 18:00 a las 20:00                                     2 horas total 7 horas, potencia del aireador 5W
+
+  if (now.hour()>= 1 && now.hour()<3)
+    {
+      digitalWrite(aire,LOW);
+      Serial.println("aireador on");
+      estado_aire=true; //se pone la bandera estado aire en truee para informar que está ON
+    }
+  else if (now.hour()>= 9 && now.hour()<11)
+    {
+      digitalWrite(aire,LOW);
+      Serial.println("aireador on");
+      estado_aire=true; //se pone la bandera estado aire en true para informar que está ON
+    }
+      else if (now.hour()>= 13 && now.hour()<14)
+        {
+        digitalWrite(aire,LOW);
+        Serial.println("aireador on");
+        estado_aire=true; //se pone la bandera estado aire en true para informar que está ON
+        }
+        else if (now.hour()>= 18 && now.hour()<20)
+          {
+            digitalWrite(aire,LOW);
+            Serial.println("aireador on");
+            estado_aire=true; //se pone la bandera estado aire en true para informar que está ON
+          }
+  else
+  {
+  digitalWrite(aire,HIGH);
+  Serial.println("aireador off");
+  estado_aire=false; //se pone la bandera estado aire en false para informar que está OFF apagada.
+  }
+}// final if del estado_manual=false, es decir, manual desactivado por ende automático ON
+
+else //si el estado_manual es true, es porque está en estado manual, por tanto 
+  {
+    Serial.println("MODO MANUAL ACTIVADO. SE ENCUENTRA EN MANUAL");
+    digitalWrite(10,0); //se apaga el led pin 10 para mostrar modo automático desactivado: MODO MANUAL ACTIVADO
+  }// fin del else de estado manual o automático
+
+
+
+//delay(1000);   
+
+//------------SENSAR NIVEL DE AGUA
+
+estado_agua=digitalRead(agua);
+if(estado_agua==false) //Se activa por flancos de bajada, o nivel 0
+  {
+    Serial.println("NIVEL CORRECTO DE AGUA");
+    digitalWrite(9,0); //no activa la alarma de agua
+  }
+else
+  {
+  Serial.println("EL NIVEL DE AGUA REQUIERE ATENCIÓN");  
+  digitalWrite(9,1); //activa alarma de agua
+  }
+
+
+ //----- BLUETOOTH ----------
+
+ if (blue.available()>0) 
+    {        
+      btdato= blue.read();  
+ 
+      switch(btdato)  
+     {  
+        case 't': //envia la temperatura al bluetooth
+        {
+         blue.print(t);
+         //blue.println("°C");
+         break; 
+        }
+       case 'h': //envia la humedad al bluetooth
+        {
+         blue.print(h);
+         //blue.println("%");
+         break; 
+        }
+        case 'q': //nivel de agua, envia mensaje al bluetooth
+        {
+         if(estado_agua==false)
+         {
+         blue.println("BIEN"); 
+         }
+         else
+         {
+         blue.println("FALTA");
+         }
+         break; 
+        }
+        case 'o': //activar o desactivar pin11
+        {
+           if (estado == false)
+            {
+            estado = true;
+            digitalWrite(11,estado);
+            Serial.println("pin 11 on");
+            }
+            else
+            {
+            estado = false;
+            digitalWrite(11,estado);
+            Serial.println("pin 11 off");
+            }
+            
+            break;
+        }    
+       case 'm':  //modo manual
+          { 
+            estado_manual = true;
+            break;  
+          }  
+      case 'p':  //estado automático
+          { 
+            estado_manual = false;
+            break;  
+          }  
+        case 'l':  //activar o desactivar luz
+          {  
+            if (estado_luz == false && estado_manual == true) //si la luz está apagada y está en modo manual
+            {
+            estado_luz = true;
+            digitalWrite(luz,LOW);
+            Serial.println("         iluminación on ENCENDIDA");
+            }
+            else if (estado_luz == true && estado_manual == true) //si la luz está encendida y está en modo manual
+            {
+            estado_luz = false; //apague la luz
+            digitalWrite(luz,HIGH);
+            Serial.println("             iluminación off APAGADA");
+            }
+          break;  
+          }  
+          case 'a':  //activar o desactivar luz
+          {  
+            if (estado_aire == false && estado_manual == true)//si el aire está apagado y está en estado manual
+            {
+            estado_aire = true; // prenda el aire
+            digitalWrite(aire,LOW);
+            Serial.println("         aireación on ENCENDIDA");
+            }
+            else if (estado_aire == true && estado_manual == true)//si el aire está encendido y está en estado manual
+            {
+            estado_aire = false; //apague el aire
+            digitalWrite(aire,HIGH);
+            Serial.println("             aireación off APAGADA");
+            }
+          break;  
+          }  
+     }
+    }
+btdato=0;
+//----------- fin bluetooth
+
+}//cierre del void loop
+
+
+//-------------- función para leer la fecha del ds1307-----
+//-------------- también escribe en el monitor serie ------
+
+void fecha(){
+   
+    //lee el tiempo del modulo ds1307, previamente se ha configurado con la hora.
+    DateTime now = RTC.now();
+    hora=(now.hour(),DEC);
+    minutos=(now.minute(),DEC);
+    segundos=(now.second(),DEC);
+  
+   //imprimimos por el monitor serial para ver la información en el pc
+  
+    //Imprimimos el dia
+    Serial.print(now.day(), DEC);
+    Serial.print('/');
+    //Imprimimos el mes
+    Serial.print(now.month(), DEC);
+    Serial.print('/');
+    //Imprimimos el año
+    Serial.print(now.year(), DEC);
+    Serial.print(' ');
+    //Imprimimos la hora
+    Serial.print(now.hour(), DEC);
+    Serial.print(':');
+    //Imprimimos los minutos
+    Serial.print(now.minute(), DEC);
+    Serial.print(':');
+    //Imprimimos los segundos
+    Serial.print(now.second(), DEC);
+    Serial.println();
+  }
